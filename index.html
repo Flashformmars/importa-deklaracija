@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8" />
+  <title>Importa Muitas Deklarācija - SIA MMD Serviss</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      @page { margin: 8mm; }
+      body { transform: scale(0.95); transform-origin: top left; font-size: 11px; line-height: 1.1; }
+      table, th, td { font-size: 11px; padding: 3px; }
+    }
+    body { font-family: Arial, sans-serif; padding: 8px 12px; margin: 0; }
+    h1 { font-size: 18px; margin: 4px 0; }
+    h2 { font-size: 13px; margin: 10px 0 6px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 8px; table-layout: fixed; }
+    th, td { border: 1px solid #aaa; text-align: left; }
+    .header-row { margin-bottom: 6px; }
+    .header-text { font-weight: bold; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Importa Muitas Deklarācija</h1>
+    <div class="header-text">SIA MMD Serviss</div>
+  </div>
+
+  <input type="file" id="fileInput" accept="application/json" class="no-print"/>
+  <svg id="barcode" class="barcode" style="display: none;"></svg>
+  <div id="declaration"></div>
+
+  <script type="module">
+    const { jsPDF } = window.jspdf;
+
+    document.getElementById("fileInput").addEventListener("change", function(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = JSON.parse(e.target.result);
+        showDeclaration(data);
+      };
+      reader.readAsText(file);
+    });
+
+    function showDeclaration(d) {
+      const allTaxes = {};
+      d.goodsShipment[0].goodsItems.forEach(item => {
+        item.value.tax?.forEach(tax => {
+          if (!allTaxes[tax.type]) {
+            allTaxes[tax.type] = { base: 0, rate: tax.rate, taxRateCurrency: tax.taxRateCurrency, amount: 0 };
+          }
+          allTaxes[tax.type].base += parseFloat(tax.base);
+          allTaxes[tax.type].amount += parseFloat(tax.amount);
+        });
+      });
+
+      const taxesHtml = Object.entries(allTaxes).map(([type, tax]) => `
+        <tr>
+          <td>${type}</td>
+          <td>${tax.base.toFixed(2)}</td>
+          <td>${tax.rate} ${tax.taxRateCurrency}</td>
+          <td>${tax.amount.toFixed(2)}</td>
+        </tr>`).join('') || '<tr><td colspan="4">Nav informācijas par nodokļiem</td></tr>';
+
+      document.getElementById("declaration").innerHTML = `
+        <h2>Nodokļu informācija</h2>
+        <table>
+          <tr><th>Veids</th><th>Bāze</th><th>Likme</th><th>Summa</th></tr>
+          ${taxesHtml}
+        </table>`;
+    }
+  </script>
+</body>
+</html>
