@@ -1,0 +1,97 @@
+
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8">
+  <title>Importa deklarācija - SIA MMD Serviss</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "San Francisco", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 40px; max-width: 900px; }
+    h1, h2, h3 { text-align: center; }
+    #output { margin-top: 20px; border-top: 1px solid #ccc; padding-top: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 5px; font-size: 12px; }
+    .right { text-align: right; }
+    #buttons { margin-top: 20px; display: flex; gap: 10px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; font-size: 14px; }
+    .small-table td, .small-table th { padding: 2px 5px; font-size: 11px; }
+   @media print { h1, h2, input, #buttons { display: none; } } </style>
+</head>
+<body>
+  <h1>Importa deklarācija</h1>
+  <h2>SIA MMD Serviss</h2>
+  <input type="file" id="jsonFile" accept="application/json">
+  <div id="buttons" style="display:none">
+    <button id="pdfBtn">Lejupielādēt PDF</button>
+    <button id="printBtn">Drukāt</button>
+  </div>
+  <div id="output"></div>
+  <script>
+    let latestMrn = '';
+    document.getElementById('jsonFile').addEventListener('change', async function(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const text = await file.text();
+      const data = JSON.parse(text);
+      latestMrn = data.mrn;
+      const container = document.getElementById('output');
+      container.innerHTML = '';
+      container.innerHTML += `<div class='right'><div id='barcode'></div></div>`;
+      container.innerHTML += `<div style="display: flex; justify-content: space-between; align-items: center;">
+        <img id="barcodeImg" style="height:60px;" />
+        <div><strong>SIA MMD Serviss</strong></div>
+      </div>
+      <div class='info-grid'>
+        <div><strong>MRN:</strong> ${data.mrn}</div>
+        <div><strong>Statuss:</strong> ${data.status}</div>
+        <div><strong>Procedūra:</strong> ${data.procedure || ''} ${data.additionalProcedure || ''}</div>
+        <div><strong>Iesniegts:</strong> ${data.submitDate?.split('T')[0]}</div>
+        <div><strong>Pieņemts:</strong> ${data.acceptDate?.split('T')[0]}</div>
+        <div><strong>Izlaists:</strong> ${data.releaseDate?.split('T')[0] || '—'}</div>
+        <div><strong>Deklarētājs:</strong> ${data.involvedPerson?.declarant?.name || ''}</div>
+        <div><strong>Saņēmējs:</strong> ${data.involvedPerson?.importer?.name || ''}</div>
+        <div><strong>Sagatavotājs:</strong></div><div><strong>Nosūtītājs:</strong> ${data.involvedPerson?.consignor?.name || ''}</div><div><strong>Importētājs:</strong> ${data.involvedPerson?.importer?.name || ''}</div><div><strong>Informējamā persona:</strong> ${data.involvedPerson?.notifyParty?.name || ''}</div><div><strong>Sagatavotājs:</strong> ${data.involvedPerson?.submitter?.name || ''}</div>
+      </div>`;
+      const canvas = document.createElement("canvas");
+JsBarcode(canvas, latestMrn, { format: "CODE128", height: 30 });
+document.getElementById("barcodeImg").src = canvas.toDataURL();
+      const tr = data.goodsShipment?.[0]?.transport || {};
+      container.innerHTML += `<h3></h3>
+        <table class='small-table'><thead><tr>
+        <th>No</th><th>Uz</th><th>Veids pie robežas</th><th>Iekšzemes veids</th><th>Transportlīdzeklis</th></tr></thead>
+        <tbody><tr>
+        <td>${tr.countryOfDispatch || ''}</td><td>${tr.countryOfDestination || ''}</td>
+        <td>${tr.transportModeOnBorder || ''}</td><td>${tr.transportInlandMode || ''}</td><td>${tr.arrivalTransportNumber || ''}</td>
+        </tr></tbody></table>`;
+      const goods = data.goodsShipment?.[0]?.goodsItems || [];
+      let taxSummary = {}, rows = '';
+      goods.forEach((g, i) => {
+        const v = g.value, inf = g.information;
+        v.tax?.forEach(t => {
+          if (!taxSummary[t.type]) taxSummary[t.type] = { base: 0, amount: 0, method: t.methodOfPayment, rate: t.rate, currency: t.taxRateCurrency === '%' ? '—' : t.taxRateCurrency };
+          taxSummary[t.type].base += parseFloat(t.base);
+          taxSummary[t.type].amount += parseFloat(t.amount);
+        });
+        const pack = v.packaging?.map(p => p.numberOfPackages).reduce((a,b)=>a+b,0)||'—';
+        rows += `<tr><td>${i+1}</td><td>${inf.descriptionOfGoods}</td><td>${inf.commodityCode}</td>
+        <td>${inf.countryOfOrigin}</td><td>${pack}</td><td>${parseFloat(v.grossMass).toFixed(2)}</td>
+        <td>${parseFloat(v.netMass).toFixed(2)}</td><td>${parseFloat(v.statTotal?.goodsValueSum).toFixed(2)}</td></tr>`;
+      });
+      container.innerHTML += `<table><thead><tr>
+        <th>Nr.</th><th>Preču apraksts</th><th>Kods</th><th>Izcelsme</th>
+        <th>Iepakojumi</th><th>Bruto masa</th><th>Neto masa</th><th>Vērtība EUR</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const taxes = Object.entries(taxSummary).map(([k,t]) => 
+        `<tr><td>${k}</td><td>${t.base.toFixed(2)}</td><td>${t.rate}</td><td>${t.currency}</td>
+        <td>${t.amount.toFixed(2)}</td><td>${t.method}</td></tr>`).join('');
+      container.innerHTML += `<br><table><thead><tr><th>Nodokļa tips</th><th>Bāze</th><th>Likme</th>
+        <th>Valūta</th><th>Summa</th><th>Maksājuma veids</th></tr></thead><tbody>${taxes}</tbody></table>`;
+      document.getElementById('buttons').style.display = 'flex';
+      document.getElementById('pdfBtn').onclick = () => {
+        html2pdf().from(container).set({ margin: 10, filename: latestMrn + '.pdf', html2canvas: { scale: 2 }, jsPDF: { format: 'a4' }}).save();
+      };
+      document.getElementById('printBtn').onclick = () => window.print();
+    });
+  </script>
+</body>
+</html>
